@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import numpy as np
 import pandas as pd
 import joblib
@@ -21,6 +21,10 @@ app = FastAPI(
     description="API for predicting water demand in Pearland, TX",
     version="1.0.0"
 )
+
+# Timezone for Pearland, TX (Central Time)
+# CST = UTC-6, CDT = UTC-5 (we'll use -6 for consistency, or calculate dynamically)
+CENTRAL_TIMEZONE = timezone(timedelta(hours=-6))
 
 # Enable CORS for frontend access
 # Update this with your Vercel domain after deployment
@@ -182,7 +186,7 @@ def generate_simulated_weather() -> List[dict]:
     """Generate simulated weather data when API is unavailable.
     Based on typical January weather in Pearland, TX.
     """
-    today = datetime.now()
+    today = datetime.now(CENTRAL_TIMEZONE)
     weather_data = []
     
     # Realistic January patterns for Pearland, TX
@@ -351,7 +355,8 @@ async def get_forecast():
     weather_data = await fetch_weather_forecast()
     predictions = generate_predictions(weather_data)
     
-    today = datetime.now().date()
+    # Use Central Time for Pearland, TX (not UTC!)
+    today = datetime.now(CENTRAL_TIMEZONE).date()
     forecasts = []
     
     for i, (weather, prediction) in enumerate(zip(weather_data, predictions)):
@@ -393,7 +398,7 @@ async def get_forecast():
     
     return ForecastResponse(
         forecasts=forecasts,
-        last_updated=datetime.now().isoformat(),
+        last_updated=datetime.now(CENTRAL_TIMEZONE).isoformat(),
         model_accuracy={
             "r_squared": 0.94 if MODEL_LOADED else None,
             "mape_percent": 3.29 if MODEL_LOADED else None,
@@ -409,6 +414,6 @@ async def health_check():
     return {
         "status": "healthy",
         "model_loaded": MODEL_LOADED,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(CENTRAL_TIMEZONE).isoformat(),
         "features_count": len(feature_columns) if MODEL_LOADED else 0
     }
