@@ -51,9 +51,9 @@ except Exception as e:
     print(f"⚠ Warning: Could not load model artifacts: {e}")
     print("  Running in demo mode with simulated predictions")
 
-# Pearland coordinates for Open-Meteo API
-PEARLAND_LAT = 29.56
-PEARLAND_LON = -95.31
+# Pearland, TX coordinates (City Center)
+PEARLAND_LAT = 29.5636
+PEARLAND_LON = -95.2861
 
 
 # Response models
@@ -123,7 +123,7 @@ async def fetch_weather_forecast() -> List[dict]:
     params = {
         "latitude": PEARLAND_LAT,
         "longitude": PEARLAND_LON,
-        "daily": ["temperature_2m_max", "temperature_2m_min", "precipitation_sum"],
+        "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum",
         "temperature_unit": "fahrenheit",
         "precipitation_unit": "inch",
         "timezone": "America/Chicago",
@@ -132,7 +132,8 @@ async def fetch_weather_forecast() -> List[dict]:
     
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.get(url, params=params, timeout=10.0)
+            print(f"Fetching weather for Pearland ({PEARLAND_LAT}, {PEARLAND_LON})...")
+            response = await client.get(url, params=params, timeout=15.0)
             response.raise_for_status()
             data = response.json()
             
@@ -142,46 +143,61 @@ async def fetch_weather_forecast() -> List[dict]:
             temp_min = daily.get("temperature_2m_min", [])
             precip = daily.get("precipitation_sum", [])
             
+            if not dates:
+                print("Warning: No dates returned from API, using fallback")
+                return generate_simulated_weather()
+            
             weather_data = []
             for i in range(len(dates)):
-                t_max = temp_max[i] if i < len(temp_max) else 70
-                t_min = temp_min[i] if i < len(temp_min) else 55
-                p = precip[i] if i < len(precip) else 0
+                t_max = temp_max[i] if i < len(temp_max) and temp_max[i] is not None else 70
+                t_min = temp_min[i] if i < len(temp_min) and temp_min[i] is not None else 55
+                p = precip[i] if i < len(precip) and precip[i] is not None else 0
                 condition, icon = get_weather_condition(t_max, p)
                 
                 weather_data.append({
                     "date": dates[i],
-                    "temp_max": t_max,
-                    "temp_min": t_min,
-                    "temp_mean": (t_max + t_min) / 2,
-                    "precipitation": p,
+                    "temp_max": round(t_max, 1),
+                    "temp_min": round(t_min, 1),
+                    "temp_mean": round((t_max + t_min) / 2, 1),
+                    "precipitation": round(p, 2),
                     "condition": condition,
                     "icon": icon
                 })
             
+            print(f"✓ Successfully fetched weather: {weather_data[0]['date']} - {weather_data[0]['temp_max']}°F")
             return weather_data
             
+        except httpx.TimeoutException:
+            print("Error: Weather API timeout, using fallback")
+            return generate_simulated_weather()
+        except httpx.HTTPStatusError as e:
+            print(f"Error: Weather API returned {e.response.status_code}, using fallback")
+            return generate_simulated_weather()
         except Exception as e:
-            print(f"Error fetching weather: {e}")
+            print(f"Error fetching weather: {type(e).__name__}: {e}")
             return generate_simulated_weather()
 
 
 def generate_simulated_weather() -> List[dict]:
-    """Generate simulated weather data when API is unavailable."""
+    """Generate simulated weather data when API is unavailable.
+    Based on typical January weather in Pearland, TX.
+    """
     today = datetime.now()
     weather_data = []
     
+    # Realistic January patterns for Pearland, TX
+    # Typical highs: 55-65°F, Lows: 35-50°F
     patterns = [
-        (65, 48, 0.0, "Mild", "⛅"),
-        (68, 52, 0.0, "Mild", "⛅"),
-        (72, 55, 0.0, "Warm", "☀️"),
-        (70, 53, 0.1, "Showers", "🌦️"),
-        (62, 45, 0.3, "Rainy", "🌧️"),
-        (58, 42, 0.0, "Cool", "☁️"),
-        (64, 48, 0.0, "Mild", "⛅"),
-        (70, 52, 0.0, "Warm", "☀️"),
-        (75, 58, 0.0, "Warm", "☀️"),
-        (68, 50, 0.05, "Mild", "⛅"),
+        (58, 35, 0.0, "Cool", "☁️"),
+        (68, 45, 0.0, "Mild", "⛅"),
+        (62, 42, 0.0, "Cool", "☁️"),
+        (55, 38, 0.1, "Showers", "🌦️"),
+        (58, 33, 0.0, "Cool", "☁️"),
+        (66, 39, 0.0, "Mild", "⛅"),
+        (70, 48, 0.0, "Mild", "☀️"),
+        (65, 45, 0.2, "Showers", "🌧️"),
+        (55, 40, 0.0, "Cool", "☁️"),
+        (60, 42, 0.0, "Cool", "⛅"),
     ]
     
     for i, (t_max, t_min, precip, condition, icon) in enumerate(patterns):
@@ -196,6 +212,7 @@ def generate_simulated_weather() -> List[dict]:
             "icon": icon
         })
     
+    print("⚠ Using simulated weather data (API unavailable)")
     return weather_data
 
 
