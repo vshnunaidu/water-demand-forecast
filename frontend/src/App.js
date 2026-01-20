@@ -421,7 +421,7 @@ export default function WaterDemandForecastApp() {
   }
 
   const forecasts = data?.forecasts || [];
-  const todayForecast = forecasts[0];
+  const todayForecast = forecasts.find(f => f.is_today) || forecasts[0];
   const todayLevel = todayForecast ? getDemandLevel(todayForecast.demand) : null;
 
   return (
