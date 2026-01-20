@@ -458,11 +458,15 @@ export default function WaterDemandForecastApp() {
                 <div style={styles.todayHeader}>
                   <span style={styles.todayLabel}>TODAY</span>
                   <span style={styles.todayDate}>
-                    {new Date(todayForecast.date).toLocaleDateString('en-US', { 
-                      weekday: 'long', 
-                      month: 'long', 
-                      day: 'numeric' 
-                    })}
+                    {(() => {
+                      const [year, month, day] = todayForecast.date.split('-').map(Number);
+                      const date = new Date(year, month - 1, day);
+                      return date.toLocaleDateString('en-US', { 
+                        weekday: 'long', 
+                        month: 'long', 
+                        day: 'numeric' 
+                      });
+                    })()}
                   </span>
                 </div>
                 
