@@ -226,7 +226,8 @@ def prepare_features(weather_data: List[dict], historical_df: pd.DataFrame) -> p
     
     for i, weather in enumerate(weather_data):
         date = datetime.strptime(weather["date"], "%Y-%m-%d")
-        
+        if date < today:
+            continue
         row = {
             "Date": date,
             "temp_mean": weather["temp_mean"],
@@ -360,8 +361,13 @@ async def get_forecast():
     forecasts = []
     
     for i, (weather, prediction) in enumerate(zip(weather_data, predictions)):
-        date = datetime.strptime(weather["date"], "%Y-%m-%d")
-        is_today = date.date() == today
+        date = datetime.strptime(weather["date"], "%Y-%m-%d").date()
+        
+        # Skip past dates - only include today and future
+        if date < today:
+            continue
+            
+        is_today = date == today
         
         demand_level, demand_color = get_demand_level(prediction["demand"])
         
@@ -373,9 +379,9 @@ async def get_forecast():
         
         forecast = DayForecast(
             date=weather["date"],
-            day_name="TODAY" if is_today else date.strftime("%a").upper(),
+            day_name="TODAY" if is_today else datetime.strptime(weather["date"], "%Y-%m-%d").strftime("%a").upper(),
             day_number=date.day,
-            month=date.strftime("%b"),
+            month=datetime.strptime(weather["date"], "%Y-%m-%d").strftime("%b"),
             is_today=is_today,
             demand=prediction["demand"],
             lower_bound=prediction["lower_bound"],
