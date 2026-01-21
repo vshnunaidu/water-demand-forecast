@@ -17,8 +17,8 @@ const COLORS = {
   gray800: '#343A40',
 };
 
-// API Configuration - Uses environment variable in production
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+// API Configuration - Update this when you deploy the backend
+const API_BASE_URL = 'http://localhost:8000';
 
 // Civitas Logo Component - Clean text-only version matching header style
 const CivitasLogo = () => (
@@ -421,7 +421,7 @@ export default function WaterDemandForecastApp() {
   }
 
   const forecasts = data?.forecasts || [];
-  const todayForecast = forecasts.find(f => f.is_today) || forecasts[0];
+  const todayForecast = forecasts[0];
   const todayLevel = todayForecast ? getDemandLevel(todayForecast.demand) : null;
 
   return (
@@ -459,7 +459,7 @@ export default function WaterDemandForecastApp() {
                   <span style={styles.todayLabel}>TODAY</span>
                   <span style={styles.todayDate}>
                     {(() => {
-                      const [year, month, day] = todayForecast.date.split('-').map(Number);
+                      const [year, month, day] = someVariable.date.split('-').map(Number);
                       const date = new Date(year, month - 1, day);
                       return date.toLocaleDateString('en-US', { 
                         weekday: 'long', 
@@ -631,11 +631,15 @@ function DetailView({ forecast, onBack }) {
       {/* Date Header */}
       <div style={styles.detailHeader}>
         <h2 style={styles.detailDate}>
-          {new Date(forecast.date).toLocaleDateString('en-US', { 
-            weekday: 'long', 
-            month: 'long', 
-            day: 'numeric' 
-          })}
+          {(() => {
+            const [year, month, day] = someVariable.date.split('-').map(Number);
+            const date = new Date(year, month - 1, day);
+            return date.toLocaleDateString('en-US', { 
+              weekday: 'long', 
+              month: 'long', 
+              day: 'numeric' 
+            });
+          })()}
         </h2>
         <div style={styles.detailWeather}>
           <span style={styles.detailWeatherIcon}>{forecast.weather.icon}</span>
