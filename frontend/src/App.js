@@ -20,33 +20,27 @@ const COLORS = {
 // API Configuration - Uses environment variable in production
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
-// Civitas Logo Component - Clean text-only version matching header style
+// Civitas Logo Component - Using official Civitas logo image
 const CivitasLogo = () => (
   <div style={logoStyles.container}>
-    <svg width="95" height="36" viewBox="0 0 95 36" fill="none">
-      {/* Arc above text */}
-      <path 
-        d="M18 14 Q47.5 2 77 14" 
-        stroke="white" 
-        strokeWidth="2.5" 
-        fill="none"
-        strokeLinecap="round"
-      />
-      {/* CIVITAS text */}
-      <text 
-        x="47.5" 
-        y="28" 
-        textAnchor="middle" 
-        fill="white" 
-        fontFamily="Arial, Helvetica, sans-serif" 
-        fontSize="17" 
-        fontWeight="bold" 
-        letterSpacing="2.5"
-      >
-        CIVITAS
-      </text>
-    </svg>
-    <span style={logoStyles.subtext}>ENGINEERING GROUP</span>
+    <img
+      src={`${process.env.PUBLIC_URL}/Civitas_New Logo.png`}
+      alt="Civitas Engineering Group"
+      style={logoStyles.image}
+      onError={(e) => {
+        // Fallback if logo file is not found
+        e.target.style.display = 'none';
+        e.target.parentElement.innerHTML = `
+          <div style="display: flex; flex-direction: column; align-items: flex-start;">
+            <svg width="95" height="36" viewBox="0 0 95 36" fill="none">
+              <path d="M18 14 Q47.5 2 77 14" stroke="white" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+              <text x="47.5" y="28" text-anchor="middle" fill="white" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="bold" letter-spacing="2.5">CIVITAS</text>
+            </svg>
+            <span style="color: rgba(255,255,255,0.65); font-size: 7px; letter-spacing: 1.8px; margin-top: 1px; margin-left: 8px; font-family: Arial, Helvetica, sans-serif;">ENGINEERING GROUP</span>
+          </div>
+        `;
+      }}
+    />
   </div>
 );
 
@@ -56,20 +50,18 @@ const logoStyles = {
     flexDirection: 'column',
     alignItems: 'flex-start',
   },
-  subtext: {
-    color: 'rgba(255,255,255,0.65)',
-    fontSize: '7px',
-    letterSpacing: '1.8px',
-    marginTop: '1px',
-    marginLeft: '8px',
-    fontFamily: 'Arial, Helvetica, sans-serif',
+  image: {
+    height: '50px',
+    width: 'auto',
+    objectFit: 'contain',
+    filter: 'brightness(0) invert(1)', // Makes purple logo appear white
   },
 };
 
 // Get demand level and color
 const getDemandLevel = (demand) => {
-  if (demand < 12) return { level: 'Low', color: COLORS.success, bg: 'rgba(34, 197, 94, 0.15)' };
-  if (demand < 16) return { level: 'Moderate', color: COLORS.warning, bg: 'rgba(234, 179, 8, 0.15)' };
+  if (demand < 14) return { level: 'Low', color: COLORS.success, bg: 'rgba(34, 197, 94, 0.15)' };
+  if (demand >= 14 && demand < 18) return { level: 'Moderate', color: COLORS.warning, bg: 'rgba(234, 179, 8, 0.15)' };
   return { level: 'High', color: COLORS.danger, bg: 'rgba(239, 68, 68, 0.15)' };
 };
 
@@ -100,7 +92,7 @@ const HourlyDemandChart = ({ dailyDemand, color }) => {
   // Chart dimensions
   const width = 320;
   const height = 140;
-  const padding = { top: 20, right: 15, bottom: 35, left: 15 };
+  const padding = { top: 20, right: 15, bottom: 35, left: 45 }; // Increased left padding for Y-axis
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
   
@@ -172,7 +164,66 @@ const HourlyDemandChart = ({ dailyDemand, color }) => {
             </feMerge>
           </filter>
         </defs>
-        
+
+        {/* Y-axis */}
+        <line
+          x1={padding.left}
+          y1={padding.top}
+          x2={padding.left}
+          y2={height - padding.bottom}
+          stroke={COLORS.gray300}
+          strokeWidth="2"
+        />
+
+        {/* Y-axis ticks and labels */}
+        {(() => {
+          const yMax = Math.ceil(maxValue / 5) * 5; // Round up to nearest 5
+          const yMin = 0;
+          const tickCount = 6; // 0, 5, 10, 15, 20, 25 (or scaled appropriately)
+          const ticks = [];
+          for (let i = 0; i <= tickCount; i++) {
+            const value = yMin + (yMax - yMin) * (i / tickCount);
+            const y = padding.top + chartHeight - (value / yMax) * chartHeight;
+            ticks.push(
+              <g key={i}>
+                <line
+                  x1={padding.left - 4}
+                  y1={y}
+                  x2={padding.left}
+                  y2={y}
+                  stroke={COLORS.gray300}
+                  strokeWidth="1"
+                />
+                <text
+                  x={padding.left - 8}
+                  y={y}
+                  textAnchor="end"
+                  dominantBaseline="middle"
+                  fill={COLORS.gray600}
+                  fontSize="9"
+                  fontWeight="500"
+                >
+                  {value.toFixed(0)}
+                </text>
+              </g>
+            );
+          }
+          return ticks;
+        })()}
+
+        {/* Y-axis label (rotated) */}
+        <text
+          x={12}
+          y={padding.top + chartHeight / 2}
+          textAnchor="middle"
+          fill={COLORS.gray600}
+          fontSize="10"
+          fontWeight="600"
+          transform={`rotate(-90, 12, ${padding.top + chartHeight / 2})`}
+        >
+          Water Demand (MgD)
+        </text>
+
         {/* Background grid lines */}
         {[0.25, 0.5, 0.75].map((pct, i) => (
           <line
@@ -432,8 +483,8 @@ export default function WaterDemandForecastApp() {
         <div style={styles.headerContent}>
           <CivitasLogo />
           <div style={styles.headerTitle}>
-            <h1 style={styles.appTitle}>Water Demand</h1>
-            <h1 style={styles.appTitle}>Forecast</h1>
+            <h1 style={styles.appTitle}>Daily Water</h1>
+            <h1 style={styles.appTitle}>Demand Forecast</h1>
             <p style={styles.appSubtitle}>Pearland, TX</p>
           </div>
         </div>
@@ -494,9 +545,9 @@ export default function WaterDemandForecastApp() {
                     </div>
                     <div style={styles.demandValue}>
                       <span style={styles.demandNumber}>{todayForecast.demand.toFixed(1)}</span>
-                      <span style={styles.demandUnit}>MG</span>
+                      <span style={styles.demandUnit}>MgD</span>
                     </div>
-                    <span style={styles.demandSubtext}>Million Gallons Expected</span>
+                    <span style={styles.demandSubtext}>Million Gallons per Day Expected</span>
                   </div>
                 </div>
                 
@@ -555,7 +606,7 @@ export default function WaterDemandForecastApp() {
                         ...styles.forecastDemandUnit,
                         color: forecast.is_today ? 'rgba(255,255,255,0.7)' : COLORS.gray600
                       }}>
-                        MG
+                        MgD
                       </span>
                     </div>
                   );
@@ -567,15 +618,15 @@ export default function WaterDemandForecastApp() {
             <div style={styles.legend}>
               <div style={styles.legendItem}>
                 <div style={{...styles.legendDot, backgroundColor: COLORS.success}} />
-                <span style={styles.legendText}>Low (&lt;12 MG)</span>
+                <span style={styles.legendText}>Low (&lt;14 MgD)</span>
               </div>
               <div style={styles.legendItem}>
                 <div style={{...styles.legendDot, backgroundColor: COLORS.warning}} />
-                <span style={styles.legendText}>Moderate (12-16 MG)</span>
+                <span style={styles.legendText}>Moderate (14-18 MgD)</span>
               </div>
               <div style={styles.legendItem}>
                 <div style={{...styles.legendDot, backgroundColor: COLORS.danger}} />
-                <span style={styles.legendText}>High (&gt;16 MG)</span>
+                <span style={styles.legendText}>High (&gt;18 MgD)</span>
               </div>
             </div>
 
@@ -656,7 +707,7 @@ function DetailView({ forecast, onBack }) {
         borderLeftColor: level.color,
       }}>
         <div style={styles.detailDemandHeader}>
-          <span style={styles.detailDemandLabel}>Expected Water Demand</span>
+          <span style={styles.detailDemandLabel}>Expected Daily Demand (MgD)</span>
           <div style={{
             ...styles.detailLevelBadge,
             backgroundColor: level.bg,
@@ -665,15 +716,18 @@ function DetailView({ forecast, onBack }) {
             {level.level}
           </div>
         </div>
-        <div style={styles.detailDemandValue}>
-          <span style={styles.detailDemandNumber}>{forecast.demand.toFixed(1)}</span>
-          <span style={styles.detailDemandUnit}>Million Gallons</span>
-        </div>
-        <div style={styles.detailRange}>
-          <span style={styles.detailRangeLabel}>Expected Range (80% confidence):</span>
-          <span style={styles.detailRangeValue}>
-            {forecast.lower_bound.toFixed(1)} – {forecast.upper_bound.toFixed(1)} MG
-          </span>
+        {/* Side-by-side layout: prediction LEFT, confidence interval RIGHT */}
+        <div style={styles.forecastLayout}>
+          <div style={styles.mainPrediction}>
+            <div style={styles.detailDemandNumber}>{forecast.demand.toFixed(1)}</div>
+            <div style={styles.detailDemandUnit}>Million Gallons</div>
+          </div>
+          <div style={styles.confidenceSection}>
+            <div style={styles.detailRangeLabel}>Expected Range (80% confidence):</div>
+            <div style={styles.detailRangeValue}>
+              {forecast.lower_bound.toFixed(1)} – {forecast.upper_bound.toFixed(1)} MgD
+            </div>
+          </div>
         </div>
       </div>
 
@@ -685,7 +739,7 @@ function DetailView({ forecast, onBack }) {
             <p style={styles.graphSubtitle}>Typical hourly distribution</p>
           </div>
           <div style={styles.graphBadge}>
-            <span style={styles.graphBadgeText}>MG/hour</span>
+            <span style={styles.graphBadgeText}>MgD</span>
           </div>
         </div>
         
@@ -694,8 +748,8 @@ function DetailView({ forecast, onBack }) {
         <div style={styles.graphInsight}>
           <span style={styles.graphInsightIcon}>💡</span>
           <span style={styles.graphInsightText}>
-            Morning peak (7AM): ~{(forecast.demand * 0.07 * 24).toFixed(1)} MG/hr • 
-            Evening peak (6PM): ~{(forecast.demand * 0.07 * 24).toFixed(1)} MG/hr
+            Morning peak (7AM): ~{(forecast.demand * 0.07 * 24).toFixed(1)} MgD •
+            Evening peak (6PM): ~{(forecast.demand * 0.07 * 24).toFixed(1)} MgD
           </span>
         </div>
       </div>
@@ -744,8 +798,8 @@ function DetailView({ forecast, onBack }) {
       {/* Comparison to Average */}
       <div style={styles.comparisonCard}>
         <div style={styles.comparisonContent}>
-          <span style={styles.comparisonLabel}>Compared to Historical Average</span>
-          <span style={styles.comparisonAvg}>(13.9 MG typical)</span>
+          <span style={styles.comparisonLabel}>Compared to Historical Average (2019-2025)</span>
+          <span style={styles.comparisonAvg}>(13.9 MgD typical)</span>
         </div>
         <span style={{
           ...styles.comparisonValue,
@@ -1166,6 +1220,26 @@ const styles = {
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: '0.5px',
+  },
+  // Side-by-side layout styles
+  forecastLayout: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '40px',
+    marginTop: '16px',
+  },
+  mainPrediction: {
+    flex: '0 0 auto',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+  },
+  confidenceSection: {
+    flex: 1,
+    background: COLORS.white,
+    padding: '20px',
+    borderRadius: '12px',
+    border: `2px solid ${COLORS.gray200}`,
   },
   detailDemandValue: {
     marginBottom: '16px',
