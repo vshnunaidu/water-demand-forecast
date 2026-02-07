@@ -221,7 +221,7 @@ const HourlyDemandChart = ({ dailyDemand, color }) => {
           fontWeight="600"
           transform={`rotate(-90, 12, ${padding.top + chartHeight / 2})`}
         >
-          Water Demand (MgD)
+          Water Demand (MGD)
         </text>
 
         {/* Background grid lines */}
@@ -483,9 +483,8 @@ export default function WaterDemandForecastApp() {
         <div style={styles.headerContent}>
           <CivitasLogo />
           <div style={styles.headerTitle}>
-            <h1 style={styles.appTitle}>Daily Water</h1>
-            <h1 style={styles.appTitle}>Demand Forecast</h1>
-            <p style={styles.appSubtitle}>Pearland, TX</p>
+            <h1 style={styles.appTitle}>City of Pearland</h1>
+            <p style={styles.appSubtitle}>Daily Water Demand Forecast</p>
           </div>
         </div>
       </header>
@@ -525,13 +524,13 @@ export default function WaterDemandForecastApp() {
                 
                 <div style={styles.todayContent}>
                   <div style={styles.weatherInfo}>
-                    <span style={styles.weatherIcon}>{todayForecast.weather.icon}</span>
+                    <span style={styles.weatherLabel}>Max Temp</span>
                     <span style={styles.weatherTemp}>{Math.round(todayForecast.weather.temp_max)}°F</span>
-                    <span style={styles.weatherCondition}>{todayForecast.weather.condition}</span>
+                    <span style={styles.weatherIcon}>{todayForecast.weather.icon}</span>
                   </div>
                   
                   <div style={styles.demandDisplay}>
-                    <div 
+                    <div
                       style={{
                         ...styles.demandIndicator,
                         backgroundColor: todayLevel.bg,
@@ -539,13 +538,10 @@ export default function WaterDemandForecastApp() {
                       }}
                     >
                       <span style={{...styles.demandDot, backgroundColor: todayLevel.color}} />
-                      <span style={{...styles.demandLevelText, color: todayLevel.color}}>
-                        {todayLevel.level} Demand
-                      </span>
                     </div>
                     <div style={styles.demandValue}>
                       <span style={styles.demandNumber}>{todayForecast.demand.toFixed(1)}</span>
-                      <span style={styles.demandUnit}>MgD</span>
+                      <span style={styles.demandUnit}>MGD</span>
                     </div>
                     <span style={styles.demandSubtext}>Million Gallons per Day Expected</span>
                   </div>
@@ -606,7 +602,7 @@ export default function WaterDemandForecastApp() {
                         ...styles.forecastDemandUnit,
                         color: forecast.is_today ? 'rgba(255,255,255,0.7)' : COLORS.gray600
                       }}>
-                        MgD
+                        MGD
                       </span>
                     </div>
                   );
@@ -618,15 +614,15 @@ export default function WaterDemandForecastApp() {
             <div style={styles.legend}>
               <div style={styles.legendItem}>
                 <div style={{...styles.legendDot, backgroundColor: COLORS.success}} />
-                <span style={styles.legendText}>Low (&lt;14 MgD)</span>
+                <span style={styles.legendText}>Low (&lt;14 MGD)</span>
               </div>
               <div style={styles.legendItem}>
                 <div style={{...styles.legendDot, backgroundColor: COLORS.warning}} />
-                <span style={styles.legendText}>Moderate (14-18 MgD)</span>
+                <span style={styles.legendText}>Moderate (14-18 MGD)</span>
               </div>
               <div style={styles.legendItem}>
                 <div style={{...styles.legendDot, backgroundColor: COLORS.danger}} />
-                <span style={styles.legendText}>High (&gt;18 MgD)</span>
+                <span style={styles.legendText}>High (&gt;18 MGD)</span>
               </div>
             </div>
 
@@ -695,9 +691,9 @@ function DetailView({ forecast, onBack }) {
           })()}
         </h2>
         <div style={styles.detailWeather}>
-          <span style={styles.detailWeatherIcon}>{forecast.weather.icon}</span>
+          <span style={styles.detailWeatherLabel}>Max Temp</span>
           <span style={styles.detailWeatherTemp}>{Math.round(forecast.weather.temp_max)}°F</span>
-          <span style={styles.detailWeatherCondition}>{forecast.weather.condition}</span>
+          <span style={styles.detailWeatherIcon}>{forecast.weather.icon}</span>
         </div>
       </div>
 
@@ -707,7 +703,7 @@ function DetailView({ forecast, onBack }) {
         borderLeftColor: level.color,
       }}>
         <div style={styles.detailDemandHeader}>
-          <span style={styles.detailDemandLabel}>Expected Daily Demand (MgD)</span>
+          <span style={styles.detailDemandLabel}>Expected Daily Demand (MGD)</span>
           <div style={{
             ...styles.detailLevelBadge,
             backgroundColor: level.bg,
@@ -725,7 +721,7 @@ function DetailView({ forecast, onBack }) {
           <div style={styles.confidenceSection}>
             <div style={styles.detailRangeLabel}>Expected Range (80% confidence):</div>
             <div style={styles.detailRangeValue}>
-              {forecast.lower_bound.toFixed(1)} – {forecast.upper_bound.toFixed(1)} MgD
+              {forecast.lower_bound.toFixed(1)} – {forecast.upper_bound.toFixed(1)} MGD
             </div>
           </div>
         </div>
@@ -739,7 +735,7 @@ function DetailView({ forecast, onBack }) {
             <p style={styles.graphSubtitle}>Typical hourly distribution</p>
           </div>
           <div style={styles.graphBadge}>
-            <span style={styles.graphBadgeText}>MgD</span>
+            <span style={styles.graphBadgeText}>MGD</span>
           </div>
         </div>
         
@@ -748,8 +744,8 @@ function DetailView({ forecast, onBack }) {
         <div style={styles.graphInsight}>
           <span style={styles.graphInsightIcon}>💡</span>
           <span style={styles.graphInsightText}>
-            Morning peak (7AM): ~{(forecast.demand * 0.07 * 24).toFixed(1)} MgD •
-            Evening peak (6PM): ~{(forecast.demand * 0.07 * 24).toFixed(1)} MgD
+            Morning peak (7AM): ~{(forecast.demand * 0.07 * 24).toFixed(1)} MGD •
+            Evening peak (6PM): ~{(forecast.demand * 0.07 * 24).toFixed(1)} MGD
           </span>
         </div>
       </div>
@@ -799,7 +795,7 @@ function DetailView({ forecast, onBack }) {
       <div style={styles.comparisonCard}>
         <div style={styles.comparisonContent}>
           <span style={styles.comparisonLabel}>Compared to Historical Average (2019-2025)</span>
-          <span style={styles.comparisonAvg}>(13.9 MgD typical)</span>
+          <span style={styles.comparisonAvg}>(13.9 MGD typical)</span>
         </div>
         <span style={{
           ...styles.comparisonValue,
@@ -950,9 +946,10 @@ const styles = {
     fontWeight: '700',
     color: COLORS.gray800,
   },
-  weatherCondition: {
+  weatherLabel: {
     fontSize: '12px',
     color: COLORS.gray600,
+    fontWeight: '600',
   },
   demandDisplay: {
     textAlign: 'right',
@@ -1182,17 +1179,20 @@ const styles = {
     alignItems: 'center',
     gap: '10px',
   },
-  detailWeatherIcon: {
-    fontSize: '32px',
+  detailWeatherLabel: {
+    fontSize: '13px',
+    color: COLORS.gray600,
+    fontWeight: '600',
+    marginRight: '8px',
   },
   detailWeatherTemp: {
     fontSize: '20px',
     fontWeight: '700',
     color: COLORS.gray800,
+    marginRight: '8px',
   },
-  detailWeatherCondition: {
-    fontSize: '15px',
-    color: COLORS.gray600,
+  detailWeatherIcon: {
+    fontSize: '32px',
   },
   detailDemandCard: {
     background: COLORS.white,
