@@ -17,3 +17,10 @@ build/
 htmlcov/
 .mypy_cache/
 .DS_Store
+
+# Logs
+*.log
+server.log
+
+# Temp files
+tmpclaude-*

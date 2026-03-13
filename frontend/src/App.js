@@ -421,6 +421,93 @@ const generateFallbackForecast = () => {
   return { forecasts, last_updated: new Date().toISOString(), model_accuracy: { model_type: 'Demo Mode' } };
 };
 
+// Prediction History Component
+function PredictionHistory() {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [predictions, setPredictions] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isExpanded && predictions.length === 0) {
+      fetchPredictions();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isExpanded]);
+
+  const fetchPredictions = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/recent-predictions`);
+      const data = await response.json();
+      setPredictions(data.predictions || []);
+    } catch (error) {
+      console.error('Error fetching prediction history:', error);
+      setPredictions([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatDate = (dateString) => {
+    const [year, month, day] = dateString.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  };
+
+  return (
+    <div style={styles.predictionHistoryContainer}>
+      <button
+        style={styles.historyToggle}
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <span style={styles.historyToggleIcon}>{isExpanded ? '▼' : '▶'}</span>
+        View Previous 5 Days Predictions
+      </button>
+
+      {isExpanded && (
+        <div style={styles.historyContent}>
+          {loading ? (
+            <div style={styles.historyLoading}>Loading prediction history...</div>
+          ) : predictions.length === 0 ? (
+            <div style={styles.historyNoData}>
+              No prediction history available yet. Predictions will appear here after the first day of use.
+            </div>
+          ) : (
+            <div style={styles.tableContainer}>
+              <table style={styles.predictionsTable}>
+                <thead>
+                  <tr>
+                    <th style={styles.tableHeader}>Date</th>
+                    <th style={styles.tableHeader}>Predicted Demand</th>
+                    <th style={styles.tableHeader}>Confidence Interval (80%)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {predictions.map((pred, index) => (
+                    <tr key={index} style={styles.tableRow}>
+                      <td style={styles.tableCell}>{formatDate(pred.date)}</td>
+                      <td style={{...styles.tableCell, ...styles.demandValueCell}}>
+                        {pred.predicted_demand.toFixed(1)} MGD
+                      </td>
+                      <td style={{...styles.tableCell, ...styles.confidenceRangeCell}}>
+                        {pred.confidence_lower.toFixed(1)} – {pred.confidence_upper.toFixed(1)} MGD
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Main App Component
 export default function WaterDemandForecastApp() {
   const [data, setData] = useState(null);
@@ -649,6 +736,9 @@ export default function WaterDemandForecastApp() {
             <button style={styles.refreshButton} onClick={fetchForecast}>
               ↻ Refresh Forecast
             </button>
+
+            {/* Prediction History */}
+            <PredictionHistory />
           </>
         ) : selectedDay && (
           <DetailView 
@@ -824,7 +914,7 @@ const styles = {
   container: {
     minHeight: '100vh',
     backgroundColor: COLORS.gray100,
-    fontFamily: "'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
     display: 'flex',
     flexDirection: 'column',
   },
@@ -868,15 +958,20 @@ const styles = {
   },
   appTitle: {
     color: COLORS.white,
-    fontSize: '18px',
-    fontWeight: '600',
+    fontSize: '20px',
+    fontWeight: '700',
+    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
     margin: 0,
-    lineHeight: 1.2,
+    lineHeight: 1.3,
+    letterSpacing: '-0.3px',
   },
   appSubtitle: {
-    color: 'rgba(255,255,255,0.75)',
-    fontSize: '12px',
-    margin: '4px 0 0 0',
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: '13px',
+    fontFamily: "'Inter', sans-serif",
+    fontWeight: '400',
+    margin: '6px 0 0 0',
+    letterSpacing: '0.2px',
   },
 
   errorBanner: {
@@ -981,10 +1076,12 @@ const styles = {
     gap: '6px',
   },
   demandNumber: {
-    fontSize: '48px',
+    fontSize: '52px',
     fontWeight: '800',
+    fontFamily: "'Inter', sans-serif",
     color: COLORS.gray800,
     lineHeight: 1,
+    letterSpacing: '-1.5px',
   },
   demandUnit: {
     fontSize: '20px',
@@ -1013,11 +1110,13 @@ const styles = {
     marginBottom: '24px',
   },
   sectionTitle: {
-    fontSize: '17px',
+    fontSize: '18px',
     fontWeight: '700',
+    fontFamily: "'Inter', sans-serif",
     color: COLORS.gray800,
-    marginBottom: '14px',
+    marginBottom: '16px',
     marginLeft: '4px',
+    letterSpacing: '-0.3px',
   },
   forecastScroll: {
     display: 'flex',
@@ -1141,6 +1240,89 @@ const styles = {
     transition: 'all 0.2s',
   },
 
+  // Prediction History Styles
+  predictionHistoryContainer: {
+    marginTop: '30px',
+    background: COLORS.white,
+    borderRadius: '16px',
+    padding: '20px',
+    boxShadow: '0 4px 20px rgba(0,0,0,0.06)',
+  },
+  historyToggle: {
+    background: 'none',
+    border: 'none',
+    color: COLORS.primary,
+    fontSize: '16px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    padding: '10px',
+    width: '100%',
+    textAlign: 'left',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    transition: 'background 0.2s',
+    borderRadius: '8px',
+  },
+  historyToggleIcon: {
+    fontSize: '12px',
+    display: 'inline-block',
+    width: '16px',
+  },
+  historyContent: {
+    marginTop: '20px',
+    animation: 'fadeIn 0.3s ease-out',
+  },
+  tableContainer: {
+    overflowX: 'auto',
+    WebkitOverflowScrolling: 'touch',
+  },
+  predictionsTable: {
+    width: '100%',
+    borderCollapse: 'collapse',
+  },
+  tableHeader: {
+    background: COLORS.gray100,
+    padding: '12px',
+    textAlign: 'left',
+    fontWeight: '600',
+    color: COLORS.gray800,
+    borderBottom: `2px solid ${COLORS.gray300}`,
+    fontSize: '13px',
+  },
+  tableRow: {
+    borderBottom: `1px solid ${COLORS.gray200}`,
+    transition: 'background 0.2s',
+  },
+  tableCell: {
+    padding: '12px',
+    fontSize: '14px',
+    color: COLORS.gray800,
+  },
+  demandValueCell: {
+    fontWeight: '600',
+    color: COLORS.primary,
+    fontSize: '15px',
+  },
+  confidenceRangeCell: {
+    color: COLORS.gray600,
+    fontSize: '13px',
+  },
+  historyLoading: {
+    padding: '30px',
+    textAlign: 'center',
+    color: COLORS.gray600,
+    fontStyle: 'italic',
+    fontSize: '14px',
+  },
+  historyNoData: {
+    padding: '30px',
+    textAlign: 'center',
+    color: COLORS.gray600,
+    fontStyle: 'italic',
+    fontSize: '14px',
+  },
+
   footer: {
     background: COLORS.primaryDark,
     padding: '14px 20px',
@@ -1170,9 +1352,11 @@ const styles = {
   },
   detailDate: {
     fontSize: '24px',
-    fontWeight: '800',
+    fontWeight: '700',
+    fontFamily: "'Inter', sans-serif",
     color: COLORS.gray800,
-    margin: '0 0 12px 0',
+    margin: '0 0 14px 0',
+    letterSpacing: '-0.4px',
   },
   detailWeather: {
     display: 'flex',
@@ -1245,10 +1429,12 @@ const styles = {
     marginBottom: '16px',
   },
   detailDemandNumber: {
-    fontSize: '56px',
+    fontSize: '64px',
     fontWeight: '800',
+    fontFamily: "'Inter', sans-serif",
     color: COLORS.gray800,
     lineHeight: 1,
+    letterSpacing: '-2px',
   },
   detailDemandUnit: {
     display: 'block',

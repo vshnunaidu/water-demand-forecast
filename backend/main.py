@@ -3,17 +3,28 @@ Water Demand Forecast API
 Backend service for the Civitas Water Demand Forecast App
 """
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List
+import logging
+import os
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import List
+
+import httpx
+import joblib
 import numpy as np
 import pandas as pd
-import joblib
-import httpx
-from pathlib import Path
-import os
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+from app.utils.prediction_logger import log_prediction, get_recent_predictions
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -22,23 +33,18 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Timezone for Pearland, TX (Central Time)
-# CST = UTC-6, CDT = UTC-5 (we'll use -6 for consistency, or calculate dynamically)
 CENTRAL_TIMEZONE = timezone(timedelta(hours=-6))
 
-# Enable CORS for frontend access
-# Update this with your Vercel domain after deployment
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "*")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Will be updated to specific domain in production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Load model and artifacts
 MODEL_DIR = Path(__file__).parent / "model"
 
 try:
@@ -49,13 +55,12 @@ try:
     historical_data = pd.read_csv(MODEL_DIR / "pearland_merged_data.csv")
     historical_data['Date'] = pd.to_datetime(historical_data['Date'])
     MODEL_LOADED = True
-    print("✓ Model and artifacts loaded successfully")
+    logger.info("Model and artifacts loaded successfully")
 except Exception as e:
     MODEL_LOADED = False
-    print(f"⚠ Warning: Could not load model artifacts: {e}")
-    print("  Running in demo mode with simulated predictions")
+    logger.warning(f"Could not load model artifacts: {e}")
+    logger.info("Running in demo mode with simulated predictions")
 
-# Pearland, TX coordinates (City Center)
 PEARLAND_LAT = 29.5636
 PEARLAND_LON = -95.2861
 
@@ -94,7 +99,16 @@ class ForecastResponse(BaseModel):
 
 
 def get_weather_condition(temp_max: float, precipitation: float) -> tuple:
-    """Determine weather condition and icon based on temperature and precipitation."""
+    """
+    Determine weather condition and icon based on temperature and precipitation.
+
+    Args:
+        temp_max: Maximum temperature in Fahrenheit
+        precipitation: Precipitation amount in inches
+
+    Returns:
+        Tuple of (condition_string, icon_emoji)
+    """
     if precipitation > 0.1:
         if precipitation > 0.5:
             return "Rainy", "🌧️"
@@ -112,7 +126,15 @@ def get_weather_condition(temp_max: float, precipitation: float) -> tuple:
 
 
 def get_demand_level(demand: float) -> tuple:
-    """Get demand level classification and color."""
+    """
+    Classify water demand level and assign color.
+
+    Args:
+        demand: Predicted water demand in MGD
+
+    Returns:
+        Tuple of (level_string, color_hex)
+    """
     if demand < 12:
         return "Low", "#22C55E"
     elif demand < 16:
@@ -122,7 +144,13 @@ def get_demand_level(demand: float) -> tuple:
 
 
 async def fetch_weather_forecast() -> List[dict]:
-    """Fetch 10-day weather forecast from Open-Meteo API."""
+    """
+    Fetch 10-day weather forecast from Open-Meteo API.
+
+    Returns:
+        List of dictionaries containing daily weather data including temperature,
+        precipitation, and weather conditions. Falls back to simulated data if API fails.
+    """
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
         "latitude": PEARLAND_LAT,
@@ -136,19 +164,19 @@ async def fetch_weather_forecast() -> List[dict]:
     
     async with httpx.AsyncClient() as client:
         try:
-            print(f"Fetching weather for Pearland ({PEARLAND_LAT}, {PEARLAND_LON})...")
+            logger.info(f"Fetching weather for Pearland ({PEARLAND_LAT}, {PEARLAND_LON})")
             response = await client.get(url, params=params, timeout=15.0)
             response.raise_for_status()
             data = response.json()
-            
+
             daily = data.get("daily", {})
             dates = daily.get("time", [])
             temp_max = daily.get("temperature_2m_max", [])
             temp_min = daily.get("temperature_2m_min", [])
             precip = daily.get("precipitation_sum", [])
-            
+
             if not dates:
-                print("Warning: No dates returned from API, using fallback")
+                logger.warning("No dates returned from API, using fallback")
                 return generate_simulated_weather()
             
             weather_data = []
@@ -168,29 +196,30 @@ async def fetch_weather_forecast() -> List[dict]:
                     "icon": icon
                 })
             
-            print(f"✓ Successfully fetched weather: {weather_data[0]['date']} - {weather_data[0]['temp_max']}°F")
+            logger.info(f"Successfully fetched weather: {weather_data[0]['date']} - {weather_data[0]['temp_max']}°F")
             return weather_data
-            
+
         except httpx.TimeoutException:
-            print("Error: Weather API timeout, using fallback")
+            logger.warning("Weather API timeout, using fallback")
             return generate_simulated_weather()
         except httpx.HTTPStatusError as e:
-            print(f"Error: Weather API returned {e.response.status_code}, using fallback")
+            logger.warning(f"Weather API returned {e.response.status_code}, using fallback")
             return generate_simulated_weather()
         except Exception as e:
-            print(f"Error fetching weather: {type(e).__name__}: {e}")
+            logger.error(f"Error fetching weather: {type(e).__name__}: {e}")
             return generate_simulated_weather()
 
 
 def generate_simulated_weather() -> List[dict]:
-    """Generate simulated weather data when API is unavailable.
-    Based on typical January weather in Pearland, TX.
+    """
+    Generate simulated weather data when API is unavailable.
+
+    Returns:
+        List of 10 days of simulated weather based on typical Pearland, TX patterns
     """
     today = datetime.now(CENTRAL_TIMEZONE)
     weather_data = []
-    
-    # Realistic January patterns for Pearland, TX
-    # Typical highs: 55-65°F, Lows: 35-50°F
+
     patterns = [
         (58, 35, 0.0, "Cool", "☁️"),
         (68, 45, 0.0, "Mild", "⛅"),
@@ -216,12 +245,21 @@ def generate_simulated_weather() -> List[dict]:
             "icon": icon
         })
     
-    print("⚠ Using simulated weather data (API unavailable)")
+    logger.warning("Using simulated weather data (API unavailable)")
     return weather_data
 
 
 def prepare_features(weather_data: List[dict], historical_df: pd.DataFrame) -> pd.DataFrame:
-    """Prepare feature dataframe for model prediction."""
+    """
+    Prepare feature dataframe for model prediction.
+
+    Args:
+        weather_data: List of weather forecast dictionaries
+        historical_df: Historical water production data
+
+    Returns:
+        DataFrame with engineered features for model input
+    """
     pred_rows = []
     
     for i, weather in enumerate(weather_data):
@@ -275,8 +313,15 @@ def prepare_features(weather_data: List[dict], historical_df: pd.DataFrame) -> p
 
 
 def generate_predictions(weather_data: List[dict]) -> List[dict]:
-    """Generate water demand predictions using the trained model."""
-    
+    """
+    Generate water demand predictions using the trained model.
+
+    Args:
+        weather_data: List of weather forecast dictionaries
+
+    Returns:
+        List of prediction dictionaries with demand, bounds, and comparison to average
+    """
     if not MODEL_LOADED:
         return generate_simulated_predictions(weather_data)
     
@@ -305,12 +350,20 @@ def generate_predictions(weather_data: List[dict]) -> List[dict]:
         return results
         
     except Exception as e:
-        print(f"Error in prediction: {e}")
+        logger.error(f"Error in prediction: {e}")
         return generate_simulated_predictions(weather_data)
 
 
 def generate_simulated_predictions(weather_data: List[dict]) -> List[dict]:
-    """Generate simulated predictions when model is unavailable."""
+    """
+    Generate simulated predictions when model is unavailable.
+
+    Args:
+        weather_data: List of weather forecast dictionaries
+
+    Returns:
+        List of simulated prediction dictionaries
+    """
     results = []
     avg_production = 13.9
     
@@ -341,7 +394,12 @@ def generate_simulated_predictions(weather_data: List[dict]) -> List[dict]:
 
 @app.get("/")
 async def root():
-    """Health check endpoint."""
+    """
+    Root health check endpoint.
+
+    Returns:
+        Dict containing service status and model availability
+    """
     return {
         "status": "online",
         "service": "Water Demand Forecast API",
@@ -351,32 +409,35 @@ async def root():
 
 @app.get("/api/forecast", response_model=ForecastResponse)
 async def get_forecast():
-    """Get 10-day water demand forecast."""
-    
+    """
+    Generate 10-day water demand forecast for Pearland, TX.
+
+    Returns:
+        ForecastResponse containing daily forecasts with weather data and demand predictions
+    """
     weather_data = await fetch_weather_forecast()
     predictions = generate_predictions(weather_data)
-    
-    # Use Central Time for Pearland, TX (not UTC!)
+
     today = datetime.now(CENTRAL_TIMEZONE).date()
     forecasts = []
-    
+    today_forecast = None
+
     for i, (weather, prediction) in enumerate(zip(weather_data, predictions)):
         date = datetime.strptime(weather["date"], "%Y-%m-%d").date()
-        
-        # Skip past dates - only include today and future
+
         if date < today:
             continue
-            
+
         is_today = date == today
-        
+
         demand_level, demand_color = get_demand_level(prediction["demand"])
-        
+
         factors = {
             "temperature": "high" if weather["temp_max"] > 75 else ("low" if weather["temp_max"] < 60 else "moderate"),
             "precipitation": "yes" if weather["precipitation"] > 0.05 else "no",
             "day_type": "weekend" if date.weekday() >= 5 else "weekday"
         }
-        
+
         forecast = DayForecast(
             date=weather["date"],
             day_name="TODAY" if is_today else datetime.strptime(weather["date"], "%Y-%m-%d").strftime("%a").upper(),
@@ -401,7 +462,24 @@ async def get_forecast():
             factors=factors
         )
         forecasts.append(forecast)
-    
+
+        if is_today:
+            today_forecast = forecast
+
+    # Log today's prediction for historical tracking
+    if today_forecast:
+        try:
+            log_prediction(
+                prediction_date=today_forecast.date,
+                predicted_demand=today_forecast.demand,
+                confidence_lower=today_forecast.lower_bound,
+                confidence_upper=today_forecast.upper_bound,
+                demand_level=today_forecast.demand_level
+            )
+            logger.info(f"Logged prediction for {today_forecast.date}: {today_forecast.demand} MGD")
+        except Exception as e:
+            logger.error(f"Failed to log prediction: {e}")
+
     return ForecastResponse(
         forecasts=forecasts,
         last_updated=datetime.now(CENTRAL_TIMEZONE).isoformat(),
@@ -416,10 +494,49 @@ async def get_forecast():
 
 @app.get("/api/health")
 async def health_check():
-    """Detailed health check."""
+    """
+    Detailed health check endpoint.
+
+    Returns:
+        Dict containing service health status and model information
+    """
     return {
         "status": "healthy",
         "model_loaded": MODEL_LOADED,
         "timestamp": datetime.now(CENTRAL_TIMEZONE).isoformat(),
         "features_count": len(feature_columns) if MODEL_LOADED else 0
     }
+
+
+@app.get("/api/recent-predictions")
+async def get_recent_predictions_endpoint():
+    """
+    Get the last 5 days of predictions for accuracy verification.
+
+    Returns:
+        Dict containing list of recent predictions with dates, demands, and confidence intervals
+    """
+    try:
+        recent = get_recent_predictions(days=5)
+
+        formatted = []
+        for pred in recent:
+            formatted.append({
+                "date": pred['prediction_date'],
+                "predicted_demand": float(pred['predicted_demand']),
+                "confidence_lower": float(pred['confidence_lower']),
+                "confidence_upper": float(pred['confidence_upper']),
+                "demand_level": pred['demand_level']
+            })
+
+        return {
+            "predictions": formatted,
+            "count": len(formatted)
+        }
+
+    except Exception as e:
+        logger.warning(f"Error fetching prediction history: {e}")
+        return {
+            "predictions": [],
+            "count": 0
+        }
