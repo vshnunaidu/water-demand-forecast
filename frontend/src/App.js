@@ -18,7 +18,7 @@ const COLORS = {
 };
 
 // API Configuration - Uses environment variable in production
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8001';
 
 // Civitas Logo Component - Using official Civitas logo image
 const CivitasLogo = () => (

@@ -13,6 +13,8 @@ import httpx
 import joblib
 import numpy as np
 import pandas as pd
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -32,6 +34,9 @@ app = FastAPI(
     description="API for predicting water demand in Pearland, TX",
     version="1.0.0"
 )
+
+# Initialize scheduler for daily prediction logging
+scheduler = AsyncIOScheduler()
 
 CENTRAL_TIMEZONE = timezone(timedelta(hours=-6))
 
@@ -141,6 +146,60 @@ def get_demand_level(demand: float) -> tuple:
         return "Moderate", "#EAB308"
     else:
         return "High", "#EF4444"
+
+
+async def fetch_weather_for_date(target_date: datetime) -> dict:
+    """
+    Fetch weather data for a specific date (historical or forecast).
+
+    Args:
+        target_date: The date to get weather for
+
+    Returns:
+        Dictionary with temperature and precipitation data for that date
+    """
+    url = "https://api.open-meteo.com/v1/forecast"
+    date_str = target_date.strftime('%Y-%m-%d')
+
+    params = {
+        "latitude": PEARLAND_LAT,
+        "longitude": PEARLAND_LON,
+        "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum",
+        "temperature_unit": "fahrenheit",
+        "precipitation_unit": "inch",
+        "timezone": "America/Chicago",
+        "start_date": date_str,
+        "end_date": date_str
+    }
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, params=params, timeout=15.0)
+            response.raise_for_status()
+            data = response.json()
+
+            daily = data.get("daily", {})
+            if not daily.get("time"):
+                logger.warning(f"No weather data for {date_str}, using fallback")
+                return None
+
+            t_max = daily["temperature_2m_max"][0] if daily["temperature_2m_max"][0] is not None else 70
+            t_min = daily["temperature_2m_min"][0] if daily["temperature_2m_min"][0] is not None else 55
+            p = daily["precipitation_sum"][0] if daily["precipitation_sum"][0] is not None else 0
+            condition, icon = get_weather_condition(t_max, p)
+
+            return {
+                "date": date_str,
+                "temp_max": round(t_max, 1),
+                "temp_min": round(t_min, 1),
+                "temp_mean": round((t_max + t_min) / 2, 1),
+                "precipitation": round(p, 2),
+                "condition": condition,
+                "icon": icon
+            }
+        except Exception as e:
+            logger.error(f"Error fetching weather for {date_str}: {e}")
+            return None
 
 
 async def fetch_weather_forecast() -> List[dict]:
@@ -261,11 +320,9 @@ def prepare_features(weather_data: List[dict], historical_df: pd.DataFrame) -> p
         DataFrame with engineered features for model input
     """
     pred_rows = []
-    
+
     for i, weather in enumerate(weather_data):
         date = datetime.strptime(weather["date"], "%Y-%m-%d")
-        if date < today:
-            continue
         row = {
             "Date": date,
             "temp_mean": weather["temp_mean"],
@@ -366,30 +423,208 @@ def generate_simulated_predictions(weather_data: List[dict]) -> List[dict]:
     """
     results = []
     avg_production = 13.9
-    
+
     for weather in weather_data:
         date = datetime.strptime(weather["date"], "%Y-%m-%d")
-        
+
         base_demand = 12.5
         temp_effect = (weather["temp_max"] - 65) * 0.12
         precip_effect = -2.0 if weather["precipitation"] > 0.1 else 0
         weekend_effect = 0.5 if date.weekday() >= 5 else 0
-        
+
         demand = base_demand + temp_effect + precip_effect + weekend_effect
         demand = max(8.0, min(25.0, demand))
-        
+
         lower = demand - 1.5
         upper = demand + 1.5
         vs_avg = round((demand / avg_production - 1) * 100)
-        
+
         results.append({
             "demand": round(demand, 2),
             "lower_bound": round(max(0, lower), 2),
             "upper_bound": round(upper, 2),
             "vs_average": vs_avg
         })
-    
+
     return results
+
+
+async def generate_prediction_for_date(date_str: str) -> dict:
+    """
+    Generate a water demand prediction for a specific past date.
+
+    Args:
+        date_str: Date in ISO format (YYYY-MM-DD)
+
+    Returns:
+        Dictionary with prediction, confidence intervals, and demand level
+    """
+    try:
+        target_date = datetime.strptime(date_str, "%Y-%m-%d")
+
+        # Get weather data for that specific date
+        weather_data = await fetch_weather_for_date(target_date)
+
+        if not weather_data:
+            # Fallback to simulated weather if API fails
+            logger.warning(f"Using simulated weather for {date_str}")
+            weather_data = {
+                "date": date_str,
+                "temp_max": 70,
+                "temp_min": 55,
+                "temp_mean": 62.5,
+                "precipitation": 0.0,
+                "condition": "Mild",
+                "icon": "⛅"
+            }
+
+        # Generate prediction using the model
+        if MODEL_LOADED:
+            try:
+                pred_df = prepare_features([weather_data], historical_data)
+                X = pred_df[feature_columns]
+                X_scaled = scaler.transform(X)
+                predicted_demand = model.predict(X_scaled)[0]
+
+                # Apply bounds
+                predicted_demand = max(4.0, min(40.0, predicted_demand))
+
+                # Calculate confidence intervals
+                confidence_lower = predicted_demand - 1.28 * residual_std
+                confidence_upper = predicted_demand + 1.28 * residual_std
+
+            except Exception as e:
+                logger.error(f"Model prediction failed for {date_str}: {e}")
+                # Fall back to simulated prediction
+                predicted_demand = generate_simulated_predictions([weather_data])[0]["demand"]
+                confidence_lower = predicted_demand - 1.5
+                confidence_upper = predicted_demand + 1.5
+        else:
+            # Use simulated prediction
+            simulated = generate_simulated_predictions([weather_data])[0]
+            predicted_demand = simulated["demand"]
+            confidence_lower = simulated["lower_bound"]
+            confidence_upper = simulated["upper_bound"]
+
+        # Determine demand level
+        demand_level, _ = get_demand_level(predicted_demand)
+
+        return {
+            "date": date_str,
+            "predicted_demand": float(round(predicted_demand, 2)),
+            "confidence_lower": float(round(max(0, confidence_lower), 2)),
+            "confidence_upper": float(round(confidence_upper, 2)),
+            "demand_level": demand_level.upper()
+        }
+
+    except Exception as e:
+        logger.error(f"Error generating prediction for {date_str}: {e}")
+        # Return a fallback prediction if generation fails
+        return {
+            "date": date_str,
+            "predicted_demand": 0.0,
+            "confidence_lower": 0.0,
+            "confidence_upper": 0.0,
+            "demand_level": "UNKNOWN"
+        }
+
+
+async def log_daily_prediction():
+    """
+    Scheduled task to automatically log today's prediction at midnight.
+
+    This runs daily at 12:01 AM Central Time to ensure we have a prediction
+    logged for each day, regardless of whether the application is accessed.
+    """
+    try:
+        today = datetime.now(CENTRAL_TIMEZONE).date()
+        date_str = today.isoformat()
+
+        logger.info(f"Running scheduled prediction logging for {date_str}")
+
+        # Fetch weather data for today
+        weather_data = await fetch_weather_for_date(datetime.combine(today, datetime.min.time()))
+
+        if not weather_data:
+            logger.warning(f"Could not fetch weather for {date_str}, using fallback")
+            weather_data = {
+                "date": date_str,
+                "temp_max": 70,
+                "temp_min": 55,
+                "temp_mean": 62.5,
+                "precipitation": 0.0,
+                "condition": "Mild",
+                "icon": "⛅"
+            }
+
+        # Generate prediction
+        if MODEL_LOADED:
+            try:
+                pred_df = prepare_features([weather_data], historical_data)
+                X = pred_df[feature_columns]
+                X_scaled = scaler.transform(X)
+                predicted_demand = model.predict(X_scaled)[0]
+                predicted_demand = max(4.0, min(40.0, predicted_demand))
+
+                confidence_lower = predicted_demand - 1.28 * residual_std
+                confidence_upper = predicted_demand + 1.28 * residual_std
+            except Exception as e:
+                logger.error(f"Model prediction failed in scheduled task: {e}")
+                simulated = generate_simulated_predictions([weather_data])[0]
+                predicted_demand = simulated["demand"]
+                confidence_lower = simulated["lower_bound"]
+                confidence_upper = simulated["upper_bound"]
+        else:
+            simulated = generate_simulated_predictions([weather_data])[0]
+            predicted_demand = simulated["demand"]
+            confidence_lower = simulated["lower_bound"]
+            confidence_upper = simulated["upper_bound"]
+
+        # Determine demand level
+        demand_level, _ = get_demand_level(predicted_demand)
+
+        # Log the prediction
+        log_prediction(
+            prediction_date=date_str,
+            predicted_demand=round(predicted_demand, 2),
+            confidence_lower=round(max(0, confidence_lower), 2),
+            confidence_upper=round(confidence_upper, 2),
+            demand_level=demand_level
+        )
+
+        logger.info(f"Successfully logged scheduled prediction for {date_str}: {predicted_demand:.2f} MGD")
+
+    except Exception as e:
+        logger.error(f"Error in scheduled prediction logging: {e}")
+
+
+@app.on_event("startup")
+async def startup_event():
+    """
+    Initialize scheduler when the application starts.
+
+    Sets up daily prediction logging at 12:01 AM Central Time.
+    """
+    # Schedule daily prediction logging at 12:01 AM Central Time
+    scheduler.add_job(
+        log_daily_prediction,
+        trigger=CronTrigger(hour=0, minute=1, timezone="America/Chicago"),
+        id="daily_prediction_log",
+        name="Log daily water demand prediction",
+        replace_existing=True
+    )
+
+    scheduler.start()
+    logger.info("Scheduler started - daily prediction logging enabled at 12:01 AM CT")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """
+    Gracefully shutdown the scheduler when the application stops.
+    """
+    scheduler.shutdown()
+    logger.info("Scheduler shutdown complete")
 
 
 @app.get("/")
@@ -511,32 +746,81 @@ async def health_check():
 @app.get("/api/recent-predictions")
 async def get_recent_predictions_endpoint():
     """
-    Get the last 5 days of predictions for accuracy verification.
+    Get the last 5 days of predictions, auto-generating any missing days.
+
+    This endpoint returns a complete 5-day prediction history by:
+    1. Identifying the last 5 calendar days (yesterday through 5 days ago)
+    2. Using logged predictions when available
+    3. Auto-generating predictions for any missing days using historical weather data
 
     Returns:
-        Dict containing list of recent predictions with dates, demands, and confidence intervals
+        Dict containing list of 5 consecutive daily predictions with dates, demands, and confidence intervals
     """
     try:
-        recent = get_recent_predictions(days=5)
+        # Get the last 5 calendar days (excluding today, going back from yesterday)
+        today = datetime.now(CENTRAL_TIMEZONE).date()
+        last_5_days = [(today - timedelta(days=i)).isoformat() for i in range(1, 6)]
 
-        formatted = []
-        for pred in recent:
-            formatted.append({
-                "date": pred['prediction_date'],
-                "predicted_demand": float(pred['predicted_demand']),
-                "confidence_lower": float(pred['confidence_lower']),
-                "confidence_upper": float(pred['confidence_upper']),
-                "demand_level": pred['demand_level']
-            })
+        # Get any existing logged predictions
+        existing_predictions = get_recent_predictions(days=5)
+        existing_dict = {pred['prediction_date']: pred for pred in existing_predictions}
+
+        # Build complete 5-day list
+        complete_predictions = []
+
+        for date_str in last_5_days:
+            if date_str in existing_dict:
+                # Use existing logged prediction
+                pred = existing_dict[date_str]
+                complete_predictions.append({
+                    "date": pred['prediction_date'],
+                    "predicted_demand": float(pred['predicted_demand']),
+                    "confidence_lower": float(pred['confidence_lower']),
+                    "confidence_upper": float(pred['confidence_upper']),
+                    "demand_level": pred['demand_level']
+                })
+                logger.info(f"Using logged prediction for {date_str}")
+            else:
+                # Generate prediction for this missing day
+                logger.info(f"Auto-generating prediction for missing day: {date_str}")
+                prediction = await generate_prediction_for_date(date_str)
+                complete_predictions.append(prediction)
 
         return {
-            "predictions": formatted,
-            "count": len(formatted)
+            "predictions": complete_predictions,
+            "count": len(complete_predictions)
         }
 
     except Exception as e:
-        logger.warning(f"Error fetching prediction history: {e}")
+        logger.error(f"Error getting recent predictions: {e}")
         return {
             "predictions": [],
             "count": 0
+        }
+
+
+@app.post("/api/trigger-daily-log")
+async def trigger_daily_log():
+    """
+    Manual trigger for daily prediction logging (for testing purposes).
+
+    This endpoint allows you to manually trigger the daily prediction logging
+    function without waiting for the scheduled time (12:01 AM).
+
+    Returns:
+        Dict containing status of the logging operation
+    """
+    try:
+        await log_daily_prediction()
+        return {
+            "status": "success",
+            "message": "Daily prediction logged successfully",
+            "timestamp": datetime.now(CENTRAL_TIMEZONE).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error triggering daily log: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.now(CENTRAL_TIMEZONE).isoformat()
         }
